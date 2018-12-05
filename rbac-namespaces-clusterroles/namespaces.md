@@ -108,3 +108,71 @@ Then we can check our pods simulating the privileges of the service-account:
 
 Now we have limited the blast radius of our application to only the namespace that it resides in. 
 So there will be no way that we can leak configmaps or secrets from other applications that are not in this namespace.
+
+## Users and Certificates
+
+ServiceAcccounts are for services inside Kubernetes, to authenticate Users we can use "User" instead
+
+```
+cat <<EOF | kubectl apply -f -
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: webapp-role-binding
+  namespace: webapp-namespace
+subjects:
+  - kind: User
+    name: alice
+    namespace: webapp-namespace
+roleRef:
+  kind: Role
+  name: webapp-role
+  apiGroup: rbac.authorization.k8s.io
+EOF
+```
+
+`kubectl get pods --namespace=webapp-namespace --as alice`
+
+## Generate Certificate
+
+Create a **private key** for `alice`:
+
+```
+$ openssl genrsa -out alice.key 2048
+```
+
+Create **certificate sign request** for `alice`:
+
+```
+$ openssl req -new -key alice.key -out alice.csr -subj "/CN=alice/O=myorg"
+```
+
+Sign the **certificate** for `alice`:
+
+```
+$ openssl x509 -req -in alice.csr -CA /etc/kubernetes/pki//ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -out alice.crt -days 365
+```
+
+
+# Create Alice Context in Kubectl
+
+Create `alice` User in `kubectl`:
+
+```
+kubectl config set-credentials alice --client-certificate="$(pwd)/alice.crt"  --client-key="$(pwd)/alice.key"
+```
+
+Create `alice` Context in `kubectl`:
+
+```
+kubectl config set-context alice --cluster=kubernetes --user=alice
+```
+
+Retrieve Contexts:
+
+```
+$ kubectl config get-contexts
+CURRENT NAME      CLUSTER   AUTHINFO  NAMESPACE
+*       kubernetes-admin@kubernetes   kubernetes   kubernetes-admin
+        alice     minikube  alice     blue
+```
